@@ -1,7 +1,7 @@
 const { createAndFundWallets } = require('./walletSetup');
 const { createJitoBundle } = require('./jitoBundle');
 const { executeChainTransaction } = require('./chainTransaction');
-const { performTokenSwap } = require('./jupiterSwap');
+const { performTokenSwap } = require('./jupiterFunction');
 const { PublicKey } = require('@solana/web3.js');
 
 async function main() {

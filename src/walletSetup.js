@@ -58,7 +58,7 @@ async function createAndFundWallets() {
   }
 
   // Create secondary wallets
-  for (let i = 0; i < 20; i++) {  // Changed to 20 as per your previous request
+  for (let i = 0; i < 20; i++) {
     secondaryWallets.push(await createWallet());
   }
 
