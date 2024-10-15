@@ -2,9 +2,10 @@ const { Connection, PublicKey, Transaction, SystemProgram } = require('@solana/w
 const { Token, TOKEN_PROGRAM_ID } = require('@solana/spl-token');
 const fetch = require('node-fetch');
 const { connection, createWallet } = require('./walletSetup');
+require('dotenv').config();
 
 // Assuming this is the mint address of the token we want to buy
-const TARGET_TOKEN_MINT = new PublicKey('');
+const TARGET_TOKEN_MINT = new PublicKey(process.env.INPUT_MINT_ADDRESS);
 
 async function createEWallets(count) {
   const eWallets = [];
