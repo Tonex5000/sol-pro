@@ -1,68 +1,89 @@
-const { Transaction, SystemProgram, LAMPORTS_PER_SOL } = require('@solana/web3.js');
+const { Transaction, SystemProgram, PublicKey, Connection } = require('@solana/web3.js');
 const { Token, TOKEN_PROGRAM_ID } = require('@solana/spl-token');
-const { connection } = require('./walletSetup');
+const { connection, createAndFundWallets } = require('./walletSetup');
 
-async function executeChainTransaction(walletA, walletB, walletC, walletD, tokenMint) {
-  // Step 1: Transfer from A to B
-  const transferAtoB = new Transaction().add(
+async function transferAllFunds(fromWallet, toWallet, tokenMint) {
+  const transactions = [];
+
+  // Get token accounts
+  const fromTokenAccount = await tokenMint.getOrCreateAssociatedAccountInfo(fromWallet.publicKey);
+  const toTokenAccount = await tokenMint.getOrCreateAssociatedAccountInfo(toWallet.publicKey);
+
+  // Transfer all SOL
+  const balance = await connection.getBalance(fromWallet.publicKey);
+  const solTransfer = new Transaction().add(
     SystemProgram.transfer({
-      fromPubkey: walletA.publicKey,
-      toPubkey: walletB.publicKey,
-      lamports: LAMPORTS_PER_SOL / 2
+      fromPubkey: fromWallet.publicKey,
+      toPubkey: toWallet.publicKey,
+      lamports: balance - 5000 // Leave some for transaction fees
     })
   );
-  await connection.sendTransaction(transferAtoB, [walletA]);
-  console.log('Transfer from A to B completed');
+  transactions.push(solTransfer);
 
-  // Step 2: Transfer from B to C
-  const transferBtoC = new Transaction().add(
-    SystemProgram.transfer({
-      fromPubkey: walletB.publicKey,
-      toPubkey: walletC.publicKey,
-      lamports: LAMPORTS_PER_SOL / 3
-    })
-  );
-  await connection.sendTransaction(transferBtoC, [walletB]);
-  console.log('Transfer from B to C completed');
-
-  // Step 3: Transfer some SOL from C to D
-  const transferCtoD = new Transaction().add(
-    SystemProgram.transfer({
-      fromPubkey: walletC.publicKey,
-      toPubkey: walletD.publicKey,
-      lamports: LAMPORTS_PER_SOL / 4
-    })
-  );
-  await connection.sendTransaction(transferCtoD, [walletC]);
-  console.log('Transfer from C to D completed');
-
-  // Step 4: Use Jupiter API to buy tokens with SOL in D
-  // This step will be implemented in jupiterSwap.js
-
-  // Step 5: Transfer remaining SOL and tokens from C to D
-  const token = new Token(connection, tokenMint, TOKEN_PROGRAM_ID, walletC);
-  const tokenAccountC = await token.getOrCreateAssociatedAccountInfo(walletC.publicKey);
-  const tokenAccountD = await token.getOrCreateAssociatedAccountInfo(walletD.publicKey);
-
-  const finalTransfer = new Transaction().add(
-    SystemProgram.transfer({
-      fromPubkey: walletC.publicKey,
-      toPubkey: walletD.publicKey,
-      lamports: await connection.getBalance(walletC.publicKey) - 5000 // Leave some for rent
-    }),
+  // Transfer all tokens
+  const tokenBalance = await tokenMint.getAccountInfo(fromTokenAccount.address);
+  const tokenTransfer = new Transaction().add(
     Token.createTransferInstruction(
       TOKEN_PROGRAM_ID,
-      tokenAccountC.address,
-      tokenAccountD.address,
-      walletC.publicKey,
+      fromTokenAccount.address,
+      toTokenAccount.address,
+      fromWallet.publicKey,
       [],
-      await token.getAccountInfo(tokenAccountC.address).then(info => info.amount.toNumber())
+      tokenBalance.amount.toNumber()
     )
   );
-  await connection.sendTransaction(finalTransfer, [walletC]);
-  console.log('Final transfer from C to D completed');
+  transactions.push(tokenTransfer);
 
-  console.log('Chain transaction completed successfully');
+  return transactions;
 }
 
-module.exports = { executeChainTransaction };
+async function executeChainTransactions(walletGroups, tokenMint) {
+  for (let i = 0; i < walletGroups.length - 1; i++) {
+    const fromWallets = walletGroups[i];
+    const toWallets = walletGroups[i + 1];
+
+    console.log(`Transferring funds from group ${String.fromCharCode(65 + i)} to group ${String.fromCharCode(66 + i)}`);
+
+    for (let j = 0; j < fromWallets.length; j++) {
+      const transactions = await transferAllFunds(fromWallets[j], toWallets[j], tokenMint);
+
+      // Sign and send transactions
+      transactions.forEach(tx => tx.sign(fromWallets[j]));
+
+      try {
+        const signatures = await Promise.all(transactions.map(tx => 
+          connection.sendTransaction(tx, [fromWallets[j]])
+        ));
+
+        console.log(`Transactions for wallet ${j} submitted:`, signatures);
+
+        await Promise.all(signatures.map(signature => 
+          connection.confirmTransaction(signature)
+        ));
+
+        console.log(`Transactions for wallet ${j} confirmed`);
+      } catch (error) {
+        console.error(`Error in transactions for wallet ${j}:`, error);
+      }
+    }
+  }
+}
+
+async function main() {
+  const { secondaryWallets, tokenMint } = await createAndFundWallets();
+
+  // Group secondary wallets
+  const groupA = secondaryWallets.filter((_, index) => index % 4 === 0);
+  const groupB = secondaryWallets.filter((_, index) => index % 4 === 1);
+  const groupC = secondaryWallets.filter((_, index) => index % 4 === 2);
+  const groupD = secondaryWallets.filter((_, index) => index % 4 === 3);
+
+  // Execute chain transactions
+  await executeChainTransactions([groupA, groupB, groupC, groupD], tokenMint);
+
+  console.log('Chain transactions completed. All funds should now be in group D wallets.');
+}
+
+main().catch(console.error);
+
+module.exports = { executeChainTransactions };

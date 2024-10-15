@@ -4,15 +4,13 @@ require('dotenv').config();
 
 const connection = new Connection('https://api.devnet.solana.com', 'confirmed');
 
-// Function to create a wallet
-async function createWallet() {
-  const wallet = Keypair.generate();
+// Function to airdrop SOL to a wallet
+async function airdropSol(wallet) {
   const airdropSignature = await connection.requestAirdrop(
     wallet.publicKey,
     LAMPORTS_PER_SOL
   );
   await connection.confirmTransaction(airdropSignature);
-  return wallet;
 }
 
 // Function to create and mint token
@@ -55,20 +53,22 @@ async function createAndFundWallets() {
   for (const secret of preparedWalletSecrets) {
     const wallet = Keypair.fromSecretKey(Buffer.from(secret, 'base64'));
     primaryWallets.push(wallet);
+    // Airdrop 1 SOL to each primary wallet
+    await airdropSol(wallet);
   }
 
-  // Create secondary wallets
+  // Create secondary wallets (without funding)
   for (let i = 0; i < 20; i++) {
-    secondaryWallets.push(await createWallet());
+    secondaryWallets.push(Keypair.generate());
   }
 
   // Create and mint devnet token
   const tokenAuthority = Keypair.generate();
   const tokenMint = await createAndMintToken(tokenAuthority);
 
-  // Mint tokens to all wallets
+  // Mint tokens only to primary wallets
   const mintAmount = 1000 * LAMPORTS_PER_SOL; // 1000 tokens
-  for (const wallet of [...primaryWallets, ...secondaryWallets]) {
+  for (const wallet of primaryWallets) {
     await createTokenAccountAndMint(tokenMint, wallet, mintAmount);
   }
 

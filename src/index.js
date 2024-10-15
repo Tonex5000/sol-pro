@@ -1,42 +1,47 @@
 const { createAndFundWallets } = require('./walletSetup');
 const { createJitoBundle } = require('./jitoBundle');
-const { executeChainTransaction } = require('./chainTransaction');
-const { performTokenSwap } = require('./jupiterFunction');
-const { PublicKey } = require('@solana/web3.js');
+const { executeChainTransactions } = require('./chainTransaction');
+const { main: executeJupiterBuy } = require('./jupiterBuy');
 
-async function main() {
+async function runEntireProcess() {
+  console.log('Starting the entire process...');
+
   try {
     // Step 1: Create and fund wallets
+    console.log('Step 1: Creating and funding wallets...');
     const { primaryWallets, secondaryWallets, tokenMint } = await createAndFundWallets();
-    console.log('Wallets created and funded');
-    console.log('Primary Wallets:', primaryWallets.map(w => w.publicKey.toBase58()));
-    console.log('Secondary Wallets:', secondaryWallets.map(w => w.publicKey.toBase58()));
+    console.log('Wallets created and funded successfully.');
 
-    // Step 2: Execute Jito bundle transactions
-    await createJitoBundle(primaryWallets, secondaryWallets);
-    console.log('Jito bundle transactions completed');
+    // Step 2: Transfer funds from primary to secondary A wallets using Jito bundle
+    console.log('Step 2: Transferring funds from primary to secondary A wallets...');
+    await createJitoBundle(primaryWallets, secondaryWallets, tokenMint);
+    console.log('Funds transferred to secondary A wallets successfully.');
 
-    // Step 3: Execute chain transaction for sets of secondary wallets
-    for (let i = 0; i < secondaryWallets.length; i += 4) {
-      const walletA = secondaryWallets[i];
-      const walletB = secondaryWallets[i + 1];
-      const walletC = secondaryWallets[i + 2];
-      const walletD = secondaryWallets[i + 3];
-      if (walletA && walletB && walletC && walletD) {
-        await executeChainTransaction(walletA, walletB, walletC, walletD, tokenMint);
-        console.log(`Chain transaction completed for set ${i / 4 + 1}`);
-        
-        // Step 4: Perform Jupiter swap for wallet D
-        const USDC_DEVNET = new PublicKey('Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr');
-        await performTokenSwap(walletD, tokenMint, USDC_DEVNET, 100 * 1e9); // Swap 100 tokens
-        console.log(`Jupiter swap completed for set ${i / 4 + 1}`);
-      }
-    }
+    // Step 3: Execute chain transactions (A -> B -> C -> D)
+    console.log('Step 3: Executing chain transactions...');
+    await executeChainTransactions([
+      secondaryWallets.filter((_, index) => index % 4 === 0), // A wallets
+      secondaryWallets.filter((_, index) => index % 4 === 1), // B wallets
+      secondaryWallets.filter((_, index) => index % 4 === 2), // C wallets
+      secondaryWallets.filter((_, index) => index % 4 === 3)  // D wallets
+    ], tokenMint);
+    console.log('Chain transactions completed successfully.');
 
-    console.log('All operations completed successfully');
+    // Step 4: Execute Jupiter buy and final transfers
+    console.log('Step 4: Executing Jupiter buy and final transfers...');
+    await executeJupiterBuy();
+    console.log('Jupiter buy and final transfers completed successfully.');
+
+    console.log('Entire process completed successfully!');
   } catch (error) {
-    console.error('An error occurred:', error);
+    console.error('An error occurred during the process:', error);
   }
 }
 
-main();
+runEntireProcess().then(() => {
+  console.log('Process finished. Exiting...');
+  process.exit(0);
+}).catch((error) => {
+  console.error('Fatal error occurred:', error);
+  process.exit(1);
+});
