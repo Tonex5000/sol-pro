@@ -4,7 +4,7 @@ const fetch = require('node-fetch');
 const { connection, createWallet } = require('./walletSetup');
 
 // Assuming this is the mint address of the token we want to buy
-const TARGET_TOKEN_MINT = new PublicKey('YOUR_TARGET_TOKEN_MINT_ADDRESS');
+const TARGET_TOKEN_MINT = new PublicKey('');
 
 async function createEWallets(count) {
   const eWallets = [];
