@@ -1,7 +1,7 @@
-const { createAndFundWallets } = require('./walletSetup');
-const { createJitoBundle } = require('./jitoBundle');
-const { executeChainTransactions } = require('./chainTransaction');
-const { main: buyTokens } = require('./jupiterBuy');
+const { createAndFundWallets } = require('./src/walletSetup');
+const { createJitoBundle } = require('./src/jitoBundle');
+const { executeChainTransactions } = require('./src/chainTransaction');
+const { main: buyTokens } = require('./src/jupiterBuy');
 
 describe('Solana Wallet Management and Transactions', () => {
   let primaryWallets;
