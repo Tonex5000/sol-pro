@@ -27,13 +27,11 @@ async function transferHalfSol(fromWallet, toWallet) {
     })
   );
 
-  const signature = await connection.sendTransaction(transaction, [fromWallet]);
-  await connection.confirmTransaction(signature);
-  console.log(`Transferred ${transferAmount} lamports from D to E wallet`);
+  return transaction; // Return transaction instead of sending it immediately
 }
 
 async function buyTokensWithJupiterAPI(wallet, amountInLamports) {
-  const routes = await fetch(`https://quote-api.jup.ag/v4/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${TARGET_TOKEN_MINT.toBase58()}&amount=${amountInLamports}&slippageBps=50`)
+  const routes = await fetch(`https://quote-api.jup.ag/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${TARGET_TOKEN_MINT.toBase58()}&amount=${amountInLamports}&slippageBps=50`)
     .then(response => response.json());
 
   if (!routes.data.length) {
@@ -42,8 +40,8 @@ async function buyTokensWithJupiterAPI(wallet, amountInLamports) {
   }
 
   const bestRoute = routes.data[0];
-  
-  const { swapTransaction } = await fetch('https://quote-api.jup.ag/v4/swap', {
+
+  const { swapTransaction } = await fetch('https://quote-api.jup.ag/v6/swap', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
@@ -56,16 +54,12 @@ async function buyTokensWithJupiterAPI(wallet, amountInLamports) {
   }).then(response => response.json());
 
   const swapTransactionBuf = Buffer.from(swapTransaction, 'base64');
-  const transaction = Transaction.from(swapTransactionBuf);
-  
-  const txid = await connection.sendTransaction(transaction, [wallet]);
-  console.log('Jupiter swap transaction sent:', txid);
-  
-  await connection.confirmTransaction(txid);
-  console.log('Jupiter swap confirmed');
+  return Transaction.from(swapTransactionBuf); // Return the transaction instead of sending it immediately
 }
 
 async function transferAllFunds(fromWallet, toWallet, tokenMint) {
+  const transactions = [];
+
   // Transfer all SOL
   const solBalance = await connection.getBalance(fromWallet.publicKey);
   const solTransaction = new Transaction().add(
@@ -75,11 +69,13 @@ async function transferAllFunds(fromWallet, toWallet, tokenMint) {
       lamports: solBalance - 5000, // Leave some for fees
     })
   );
-  await connection.sendTransaction(solTransaction, [fromWallet]);
+  
+  transactions.push(solTransaction);
 
   // Transfer all tokens
   const fromTokenAccount = await tokenMint.getOrCreateAssociatedAccountInfo(fromWallet.publicKey);
   const toTokenAccount = await tokenMint.getOrCreateAssociatedAccountInfo(toWallet.publicKey);
+  
   const tokenBalance = await tokenMint.getAccountInfo(fromTokenAccount.address);
   
   const tokenTransaction = new Transaction().add(
@@ -92,29 +88,74 @@ async function transferAllFunds(fromWallet, toWallet, tokenMint) {
       tokenBalance.amount.toNumber()
     )
   );
-  await connection.sendTransaction(tokenTransaction, [fromWallet]);
+  
+  transactions.push(tokenTransaction);
 
-  console.log('Transferred all funds from D to E wallet');
+  return transactions; // Return all transactions instead of sending them immediately
+}
+
+async function createJitoBundle(transactions, wallet) {
+  // Sign transactions with the respective wallet
+  transactions.forEach(tx => tx.sign(wallet));
+
+  // Serialize all transactions
+  const serializedTransactions = transactions.map(tx => tx.serializeMessage());
+
+  try {
+    // Send the bundle to Jito with a tip
+    const response = await fetch('https://devnet.block-engine.jito.wtf/api/v1/bundles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "sendBundle",
+        params: [serializedTransactions.map(tx => Buffer.from(tx).toString('base64')), { tip: { lamports: 1000 } }],
+        bundleOnly: true // Important for Jito bundles
+      })
+    });
+
+    const result = await response.json();
+    
+    if (result.error) {
+      throw new Error(`Error sending bundle: ${result.error.message}`);
+    }
+
+    console.log('Bundle submitted successfully:', result.result);
+    
+    // Optionally wait for confirmation here if needed
+
+  } catch (error) {
+    console.error('Error submitting bundle:', error);
+  }
 }
 
 async function main() {
   // Assuming we have access to D wallets and token mint from previous steps
   const { secondaryWallets, tokenMint } = require('./chainTransaction');
+  
   const dWallets = secondaryWallets.filter((_, index) => index % 4 === 3);
 
   // Create E wallets
   const eWallets = await createEWallets(dWallets.length);
 
   for (let i = 0; i < dWallets.length; i++) {
+    const transactionsToSend = [];
+
     // Transfer half SOL from D to E
-    await transferHalfSol(dWallets[i], eWallets[i]);
+    transactionsToSend.push(await transferHalfSol(dWallets[i], eWallets[i]));
 
     // Buy tokens using Jupiter API
     const eWalletBalance = await connection.getBalance(eWallets[i].publicKey);
-    await buyTokensWithJupiterAPI(eWallets[i], eWalletBalance);
+    transactionsToSend.push(await buyTokensWithJupiterAPI(eWallets[i], eWalletBalance));
 
     // Transfer remaining funds from D to E
-    await transferAllFunds(dWallets[i], eWallets[i], tokenMint);
+    transactionsToSend.push(...await transferAllFunds(dWallets[i], eWallets[i], tokenMint));
+    
+    // Flatten the array and send as a Jito bundle
+    await createJitoBundle(transactionsToSend.flat(), dWallets[i]);
+    
+    console.log(`Completed operations for wallet ${dWallets[i].publicKey.toBase58()}`);
   }
 
   console.log('All operations completed. E wallets now have all funds and newly purchased tokens.');

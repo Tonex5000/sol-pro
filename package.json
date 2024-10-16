@@ -14,5 +14,8 @@
     "@solana/web3.js": "^1.95.3",
     "dotenv": "^16.4.5",
     "node-fetch": "^2.7.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
   }
 }

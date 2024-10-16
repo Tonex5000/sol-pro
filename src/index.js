@@ -1,47 +1,30 @@
 const { createAndFundWallets } = require('./walletSetup');
 const { createJitoBundle } = require('./jitoBundle');
 const { executeChainTransactions } = require('./chainTransaction');
-const { main: executeJupiterBuy } = require('./jupiterBuy');
+const { main: buyTokens } = require('./jupiterBuy');
 
-async function runEntireProcess() {
-  console.log('Starting the entire process...');
-
+async function main() {
   try {
     // Step 1: Create and fund wallets
-    console.log('Step 1: Creating and funding wallets...');
-    const { primaryWallets, secondaryWallets, tokenMint } = await createAndFundWallets();
-    console.log('Wallets created and funded successfully.');
+    const { primaryWallets, secondaryWallets, tertiaryWallets, tokenMint } = await createAndFundWallets();
+    console.log('Wallets created and funded.');
 
-    // Step 2: Transfer funds from primary to secondary A wallets using Jito bundle
-    console.log('Step 2: Transferring funds from primary to secondary A wallets...');
+    // Step 2: Create Jito bundle for transferring funds from primary to secondary wallets
     await createJitoBundle(primaryWallets, secondaryWallets, tokenMint);
-    console.log('Funds transferred to secondary A wallets successfully.');
+    console.log('Jito bundle transactions completed.');
 
-    // Step 3: Execute chain transactions (A -> B -> C -> D)
-    console.log('Step 3: Executing chain transactions...');
-    await executeChainTransactions([
-      secondaryWallets.filter((_, index) => index % 4 === 0), // A wallets
-      secondaryWallets.filter((_, index) => index % 4 === 1), // B wallets
-      secondaryWallets.filter((_, index) => index % 4 === 2), // C wallets
-      secondaryWallets.filter((_, index) => index % 4 === 3)  // D wallets
-    ], tokenMint);
-    console.log('Chain transactions completed successfully.');
+    // Step 3: Execute chain transactions from secondary to tertiary wallets
+    await executeChainTransactions([secondaryWallets, tertiaryWallets], tokenMint);
+    console.log('Chain transactions completed.');
 
-    // Step 4: Execute Jupiter buy and final transfers
-    console.log('Step 4: Executing Jupiter buy and final transfers...');
-    await executeJupiterBuy();
-    console.log('Jupiter buy and final transfers completed successfully.');
+    // Step 4: Buy tokens using Jupiter API
+    await buyTokens();
+    console.log('Token purchases completed.');
 
-    console.log('Entire process completed successfully!');
   } catch (error) {
-    console.error('An error occurred during the process:', error);
+    console.error('An error occurred:', error);
   }
 }
 
-runEntireProcess().then(() => {
-  console.log('Process finished. Exiting...');
-  process.exit(0);
-}).catch((error) => {
-  console.error('Fatal error occurred:', error);
-  process.exit(1);
-});
+// Execute the main function
+main().catch(console.error);

@@ -43,23 +43,41 @@ async function createTokenAccountAndMint(tokenMint, wallet, amount) {
   return tokenAccount;
 }
 
+// Function to create child wallets
+function createChildWallets(count) {
+  const wallets = [];
+  for (let i = 0; i < count; i++) {
+    wallets.push(Keypair.generate());
+  }
+  return wallets;
+}
+
 // Function to create and fund wallets
 async function createAndFundWallets() {
   const primaryWallets = [];
-  const secondaryWallets = [];
+  const secondaryWallets = {};
+  const tertiaryWallets = {};
 
   // Use prepared wallets for primary wallets
   const preparedWalletSecrets = process.env.PRIMARY_WALLET_SECRETS.split(',');
+  
   for (const secret of preparedWalletSecrets) {
     const wallet = Keypair.fromSecretKey(Buffer.from(secret, 'base64'));
+    
     primaryWallets.push(wallet);
+    
     // Airdrop 1 SOL to each primary wallet
     await airdropSol(wallet);
-  }
 
-  // Create secondary wallets (without funding)
-  for (let i = 0; i < 20; i++) {
-    secondaryWallets.push(Keypair.generate());
+    // Create secondary wallets for each primary wallet
+    secondaryWallets[wallet.publicKey.toBase58()] = createChildWallets(3);
+
+    // Create tertiary wallets for each secondary wallet
+    tertiaryWallets[wallet.publicKey.toBase58()] = {};
+    
+    for (const secondaryWallet of secondaryWallets[wallet.publicKey.toBase58()]) {
+      tertiaryWallets[wallet.publicKey.toBase58()][secondaryWallet.publicKey.toBase58()] = createChildWallets(3);
+    }
   }
 
   // Create and mint devnet token
@@ -67,12 +85,18 @@ async function createAndFundWallets() {
   const tokenMint = await createAndMintToken(tokenAuthority);
 
   // Mint tokens only to primary wallets
-  const mintAmount = 1000 * LAMPORTS_PER_SOL; // 1000 tokens
+  const mintAmount = 1000 * (10 ** 9); // Adjusted for decimal places (1000 tokens with precision of 9)
+  
   for (const wallet of primaryWallets) {
     await createTokenAccountAndMint(tokenMint, wallet, mintAmount);
   }
 
-  return { primaryWallets, secondaryWallets, tokenMint: tokenMint.publicKey };
+  return { 
+    primaryWallets, 
+    secondaryWallets, 
+    tertiaryWallets, 
+    tokenMint: tokenMint.publicKey 
+  };
 }
 
 module.exports = { createAndFundWallets, connection };
