@@ -1,19 +1,21 @@
 const { Transaction, SystemProgram, PublicKey, Connection } = require('@solana/web3.js');
-const { Token, TOKEN_PROGRAM_ID } = require('@solana/spl-token');
+const splToken = require('@solana/spl-token');
 const { connection, createAndFundWallets } = require('./walletSetup');
+const bs58 = require('bs58')
 const fetch = require('node-fetch');
 
 async function transferFunds(primaryWallet, secondaryWallets, tokenMint) {
   const transactions = [];
-
+  
   // Get token accounts
-  const primaryTokenAccount = await tokenMint.getOrCreateAssociatedAccountInfo(primaryWallet.publicKey);
-  const tokenBalance = await tokenMint.getAccountInfo(primaryTokenAccount.address);
+  //const primaryAddress = bs58.encode(primaryWallet);
+  const primaryTokenAccount = await splToken.getOrCreateAssociatedTokenAccount(connection, primaryWallet, tokenMint, primaryWallet.publicKey);
+  const tokenBalance = await connection.getTokenAccountBalance(primaryTokenAccount.address)
   
   // Calculate amounts to transfer
   const balance = await connection.getBalance(primaryWallet.publicKey);
   const solPerSecondary = Math.floor((balance - 5000) / secondaryWallets.length); // Leave some for transaction fees
-  const tokenPerSecondary = Math.floor(tokenBalance.amount.toNumber() / secondaryWallets.length);
+  const tokenPerSecondary = Math.floor(tokenBalance.value.amount / secondaryWallets.length);
 
   // Create SOL transfer transactions
   for (const secondaryWallet of secondaryWallets) {
@@ -27,15 +29,16 @@ async function transferFunds(primaryWallet, secondaryWallets, tokenMint) {
     transactions.push(solTransfer);
 
     // Create token transfer transactions
-    const secondaryTokenAccount = await tokenMint.getOrCreateAssociatedAccountInfo(secondaryWallet.publicKey);
+    const secondaryTokenAccount = await splToken.getOrCreateAssociatedTokenAccount(connection,primaryWallet, tokenMint, secondaryWallet.publicKey);
+    
     const tokenTransfer = new Transaction().add(
-      Token.createTransferInstruction(
-        TOKEN_PROGRAM_ID,
+      splToken.createTransferInstruction(
         primaryTokenAccount.address,
         secondaryTokenAccount.address,
         primaryWallet.publicKey,
+        tokenPerSecondary,
         [],
-        tokenPerSecondary
+        splToken.TOKEN_PROGRAM_ID
       )
     );
     transactions.push(tokenTransfer);
@@ -47,21 +50,29 @@ async function transferFunds(primaryWallet, secondaryWallets, tokenMint) {
 async function createJitoBundle(primaryWallets, secondaryWallets, tokenMint) {
   const allTransactions = [];
 
+  const {blockhash} = await connection.getLatestBlockhash('finalized')
+
   // Create transactions for transferring from primary to secondary wallets
   for (let i = 0; i < primaryWallets.length; i++) {
     const primaryWallet = primaryWallets[i];
     const currentSecondaryWallets = secondaryWallets[primaryWallet.publicKey.toBase58()];
 
     const transactions = await transferFunds(primaryWallet, currentSecondaryWallets, tokenMint);
+
+    
+    transactions.forEach(tx => {
+      tx.recentBlockhash = blockhash;
+      tx.feePayer = primaryWallet.publicKey;
+      tx.sign(primaryWallet);
+    })
+
     allTransactions.push(...transactions);
   }
-
-  // Serialize all transactions
+  
   const serializedTransactions = allTransactions.map(tx => tx.serializeMessage());
 
   try {
-    // Send the bundle to Jito with a tip
-    const response = await fetch('https://devnet.block-engine.jito.wtf/api/v1/bundles', {
+    const response = await fetch('https://mainnet.block-engine.jito.wtf/api/v1/bundles', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -80,8 +91,7 @@ async function createJitoBundle(primaryWallets, secondaryWallets, tokenMint) {
     }
 
     console.log('Bundle submitted successfully:', result.result);
-    
-    // Optionally wait for confirmation here if needed
+
 
   } catch (error) {
     console.error('Error submitting bundle:', error);
@@ -90,8 +100,7 @@ async function createJitoBundle(primaryWallets, secondaryWallets, tokenMint) {
 
 async function main() {
   const { primaryWallets, secondaryWallets, tokenMint } = await createAndFundWallets();
-  
-  // Set connection to devnet
+
   connection.rpcEndpoint = "https://api.devnet.solana.com";
   
   await createJitoBundle(primaryWallets, secondaryWallets, tokenMint);
