@@ -1,5 +1,6 @@
 const { Transaction, SystemProgram, PublicKey, Connection } = require('@solana/web3.js');
 const { Token, TOKEN_PROGRAM_ID } = require('@solana/spl-token');
+const splToken = require('@solana/spl-token')
 const fetch = require('node-fetch');
 const { connection, createAndFundWallets } = require('./walletSetup');
 
@@ -7,8 +8,8 @@ async function transferAllFunds(fromWallet, toWallet, tokenMint) {
   const transactions = [];
 
   // Get token accounts
-  const fromTokenAccount = await tokenMint.getOrCreateAssociatedAccountInfo(fromWallet.publicKey);
-  const toTokenAccount = await tokenMint.getOrCreateAssociatedAccountInfo(toWallet.publicKey);
+  const fromTokenAccount = await splToken.getOrCreateAssociatedTokenAccount(connection, fromWallet, tokenMint, fromWallet.publicKey)
+  const toTokenAccount = await splToken.getOrCreateAssociatedTokenAccount(connection, fromWallet, tokenMint, toWallet.publicKey)
 
   // Transfer all SOL
   const balance = await connection.getBalance(fromWallet.publicKey);
@@ -97,20 +98,26 @@ async function main() {
 
   // Group secondary wallets into groups of three for each primary wallet
   const groupsOfSecondary = [];
+
+  try{
+    for (let i = 0; i < secondaryWallets.length; i += 3) {
+      groupsOfSecondary.push(secondaryWallets.slice(i, i + 3));
+    }
   
-  for (let i = 0; i < secondaryWallets.length; i += 3) {
-    groupsOfSecondary.push(secondaryWallets.slice(i, i + 3));
+    // Create tertiary wallets for each secondary wallet group
+    const groupsOfTertiary = groupsOfSecondary.map(group => {
+      return group.flatMap(wallet => createChildWallets(3)); // Create three tertiary wallets for each secondary wallet
+    });
+  
+    // Execute chain transactions from secondary wallets to tertiary wallets
+    await executeChainTransactions([groupsOfSecondary.flat(), groupsOfTertiary.flat()], tokenMint);
+  
+    console.log('Chain transactions completed. All funds should now be in the tertiary wallets.');
+  }catch(error){
+    console.error("Error on chain Transaction: ", error)
   }
+  
 
-  // Create tertiary wallets for each secondary wallet group
-  const groupsOfTertiary = groupsOfSecondary.map(group => {
-    return group.flatMap(wallet => createChildWallets(3)); // Create three tertiary wallets for each secondary wallet
-  });
-
-  // Execute chain transactions from secondary wallets to tertiary wallets
-  await executeChainTransactions([groupsOfSecondary.flat(), groupsOfTertiary.flat()], tokenMint);
-
-  console.log('Chain transactions completed. All funds should now be in the tertiary wallets.');
 }
 
 main().catch(console.error);

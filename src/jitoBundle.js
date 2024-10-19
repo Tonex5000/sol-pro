@@ -4,6 +4,27 @@ const { connection, createAndFundWallets } = require('./walletSetup');
 const bs58 = require('bs58')
 const fetch = require('node-fetch');
 
+function splitIntoBundles(transactions, maxSize) {
+  const bundles = [];
+  let currentBundle = []; // Change const to let
+
+  for (const transaction of transactions) {
+    if (currentBundle.length < maxSize) { // Use currentBundle.length to check size
+     currentBundle.push(transaction);
+    } else {
+     bundles.push(currentBundle);
+     currentBundle = [transaction]; // Reset currentBundle with the new transaction
+    }
+  }
+
+  // Add any remaining transactions to bundles
+  if (currentBundle.length > 0) {
+    bundles.push(currentBundle);
+  }
+
+  return bundles;
+}
+
 async function transferFunds(primaryWallet, secondaryWallets, tokenMint) {
   const transactions = [];
   
@@ -68,8 +89,13 @@ async function createJitoBundle(primaryWallets, secondaryWallets, tokenMint) {
 
     allTransactions.push(...transactions);
   }
-  
-  const serializedTransactions = allTransactions.map(tx => tx.serializeMessage());
+
+  const transactionBundles = splitIntoBundles(allTransactions, 5);
+
+  for(const bundle of transactionBundles){
+  console.log(bundle)
+  const serializedTransactions = bundle.map(tx => tx.serializeMessage());
+  console.log(serializedTransactions)
 
   try {
     const response = await fetch('https://mainnet.block-engine.jito.wtf/api/v1/bundles', {
@@ -79,7 +105,7 @@ async function createJitoBundle(primaryWallets, secondaryWallets, tokenMint) {
         jsonrpc: "2.0",
         id: 1,
         method: "sendBundle",
-        params: [serializedTransactions.map(tx => Buffer.from(tx).toString('base64')), { tip: { lamports: 1000 } }],
+        params: [serializedTransactions.map(tx => bs58.encode(tx)), { tip: { lamports: 1000 } }],
         bundleOnly: true // Important for Jito bundles
       })
     });
@@ -96,12 +122,13 @@ async function createJitoBundle(primaryWallets, secondaryWallets, tokenMint) {
   } catch (error) {
     console.error('Error submitting bundle:', error);
   }
+ }
 }
 
 async function main() {
   const { primaryWallets, secondaryWallets, tokenMint } = await createAndFundWallets();
 
-  connection.rpcEndpoint = "https://api.devnet.solana.com";
+  connection.rpcEndpoint = "https://api.devnet.solana.com"; 
   
   await createJitoBundle(primaryWallets, secondaryWallets, tokenMint);
 }

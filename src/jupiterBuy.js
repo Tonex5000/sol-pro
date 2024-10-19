@@ -5,7 +5,7 @@ const { connection, createWallet } = require('./walletSetup');
 require('dotenv').config();
 
 // Assuming this is the mint address of the token we want to buy
-const TARGET_TOKEN_MINT = new PublicKey(process.env.INPUT_MINT_ADDRESS);
+const TARGET_TOKEN_MINT = new PublicKey(process.env.OUTPUT_MINT_ADDRESS);
 
 async function createEWallets(count) {
   const eWallets = [];
@@ -30,8 +30,8 @@ async function transferHalfSol(fromWallet, toWallet) {
   return transaction; // Return transaction instead of sending it immediately
 }
 
-async function buyTokensWithJupiterAPI(wallet, amountInLamports) {
-  const routes = await fetch(`https://quote-api.jup.ag/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${TARGET_TOKEN_MINT.toBase58()}&amount=${amountInLamports}&slippageBps=50`)
+async function buyTokensWithJupiterAPI(wallet, amountInLamports, inputMint) {
+  const routes = await fetch(`https://quote-api.jup.ag/v6/quote?inputMint=${inputMint}&outputMint=${TARGET_TOKEN_MINT.toBase58()}&amount=${amountInLamports}&slippageBps=50`)
     .then(response => response.json());
 
   if (!routes.data.length) {
@@ -73,8 +73,8 @@ async function transferAllFunds(fromWallet, toWallet, tokenMint) {
   transactions.push(solTransaction);
 
   // Transfer all tokens
-  const fromTokenAccount = await tokenMint.getOrCreateAssociatedAccountInfo(fromWallet.publicKey);
-  const toTokenAccount = await tokenMint.getOrCreateAssociatedAccountInfo(toWallet.publicKey);
+  const fromTokenAccount = await splToken.getOrCreateAssociatedTokenAccount(connection, fromWallet, tokenMint, fromWallet.publicKey)
+  const toTokenAccount = await splToken.getOrCreateAssociatedTokenAccount(connection, fromWallet, tokenMint, toWallet.publicKey)
   
   const tokenBalance = await tokenMint.getAccountInfo(fromTokenAccount.address);
   
@@ -147,7 +147,7 @@ async function main() {
 
     // Buy tokens using Jupiter API
     const eWalletBalance = await connection.getBalance(eWallets[i].publicKey);
-    transactionsToSend.push(await buyTokensWithJupiterAPI(eWallets[i], eWalletBalance));
+    transactionsToSend.push(await buyTokensWithJupiterAPI(eWallets[i], eWalletBalance, tokenMint.toBase58()));
 
     // Transfer remaining funds from D to E
     transactionsToSend.push(...await transferAllFunds(dWallets[i], eWallets[i], tokenMint));
